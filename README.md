@@ -13,7 +13,7 @@ A minimal but real **event-driven system** you can run on [Railway](https://rail
                                     └───────────────┬─────────────────────────┘
                                                     │
                      ┌──────────────────────────────▼───────────────────────┐
-                     │ OutboxRelayService  (poll loop)                      │
+                     │ OutboxRelayService  (poll loop OR manual /outbox/drain)│
                      │  SELECT ... FROM outbox_events WHERE status='PENDING' │
                      │  ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT N   │
                      │  → EventBus.publish() → mark row PUBLISHED            │
@@ -40,6 +40,12 @@ A minimal but real **event-driven system** you can run on [Railway](https://rail
 The `EventBus` interface is the transport seam: today `PgBossEventBus` (Postgres,
 zero extra infra). Swap the binding in [`events.module.ts`](api/src/events/events.module.ts)
 for a `BullMqEventBus` (Redis) later — nothing else changes.
+
+The relay runs in one of two modes (`OUTBOX_RELAY_MODE`, default `manual`):
+`poll` dispatches PENDING rows every `OUTBOX_POLL_INTERVAL_MS`; `manual` only
+dispatches when `POST /outbox/drain` is called (the web **Refresh** button does
+this). Manual mode avoids holding an idle connection cycle open against a
+capped pooler — see [Database connections](#database-connections).
 
 ## Layout
 
@@ -109,8 +115,11 @@ Run everything in one service to keep it simple, or split into `web` + `relay` +
    - `NODE_ENV` = `production`
    - Healthcheck path `/health` is set in [`api/railway.json`](api/railway.json).
    - `prisma migrate deploy` runs automatically on boot (advisory-locked, safe from every replica).
-5. **web service** — set *Root Directory* = `web`:
-   - `API_URL` = internal URL of the api service, e.g. `http://api.railway.internal:3001`
+5. **web service** — set *Root Directory* = `web` (or deploy `web/` to Vercel):
+   - `NEXT_PUBLIC_API_URL` = the api service's **public** URL, e.g.
+     `https://<api>.up.railway.app`. The browser calls the api directly, so this
+     is baked into the client bundle at build time — a change needs a rebuild,
+     and `.railway.internal` hostnames will not work from the browser.
    - Generate a public domain for this service.
 
 > Splitting services: point all three api-side services at *Root Directory* `api`
@@ -124,6 +133,38 @@ Run everything in one service to keep it simple, or split into `web` + `relay` +
 - `PGBOSS_DATABASE_URL` → also the direct/session connection (pg-boss is **not**
   compatible with transaction-mode pooling)
 - Run `pnpm prisma migrate deploy` from CI against `DIRECT_URL` (see [`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+
+### Database connections
+
+Each api container opens **several independent connection pools** against the same
+Postgres:
+
+| Consumer | Connection string | Pool size |
+| --- | --- | --- |
+| Prisma Client | `DATABASE_URL` | `num_cpus * 2 + 1` by default — on a shared host that can be 9–17 |
+| pg-boss (send + work + maintenance) | `PGBOSS_DATABASE_URL` → `DIRECT_URL` → `DATABASE_URL` | `max: 2` (set in [`pgboss-event-bus.ts`](api/src/events/pgboss-event-bus.ts)) |
+| boot migration | `DIRECT_URL` | short-lived |
+
+Against a shared pooler — Supabase Supavisor **session mode** caps at ~15 clients
+per project — the sum of these pools can exhaust the budget and publishes fail
+with `EMAXCONNSESSION: max clients reached in session mode`. Mitigations, roughly
+in order:
+
+1. **Cap Prisma:** append `?connection_limit=5&pool_timeout=20` to `DATABASE_URL`
+   (keep `pgbouncer=true` if it points at the `:6543` transaction pooler).
+2. **Keep pg-boss small:** `max: 2` is already set; raise only with headroom to spare.
+3. **Give pg-boss its own direct connection:** set `PGBOSS_DATABASE_URL` to the
+   true direct endpoint (`db.<ref>.supabase.co:5432`) so it bypasses Supavisor's
+   session budget entirely. That endpoint is IPv6-only — enable IPv6 egress on the
+   Railway service or use Supabase's IPv4 add-on.
+4. **Drop the idle relay churn:** `OUTBOX_RELAY_MODE=manual` (default) removes the
+   always-on poll loop; the pipeline advances on `POST /outbox/drain`.
+5. **Raise the ceiling:** Supabase → Project Settings → Database → Connection
+   pooling → *Pool Size* (bounded by the instance's `max_connections`).
+
+Railway's own Postgres plugin is a direct connection with no such session cap, so
+none of this applies there — but the pools still exist, so keep an eye on
+`max_connections` if you scale replicas.
 
 ## CI
 

@@ -35,8 +35,10 @@ export class PgBossEventBus
     this.boss = new PgBoss({
       connectionString,
       schema: 'pgboss',
-      // keep the pg-boss pool small - the container already holds a Prisma pool
-      max: 4,
+      // Keep the pg-boss pool tiny. The container already holds a Prisma pool,
+      // and against a Supabase/PgBouncer pooler the shared session budget is
+      // ~15 clients — see README "Database connections".
+      max: 2,
     });
     this.boss.on('error', (err) =>
       this.logger.error(`pg-boss error: ${err.message}`, err.stack),
