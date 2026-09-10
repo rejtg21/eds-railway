@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-const API_URL = process.env.API_URL ?? 'http://localhost:3001';
+const API_URL = (process.env.API_URL ?? 'http://localhost:3001').replace(/\/+$/, '');
 
 export const dynamic = 'force-dynamic';
 
