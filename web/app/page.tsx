@@ -3,6 +3,12 @@
 import { Show, SignInButton, SignUpButton, UserButton } from '@clerk/nextjs';
 import { useCallback, useEffect, useState } from 'react';
 
+// The browser talks to the NestJS API on Railway directly. Set
+// NEXT_PUBLIC_API_URL in the Vercel project (it is inlined at build time).
+const API_URL = (
+  process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001'
+).replace(/\/+$/, '');
+
 interface Order {
   id: string;
   customer: string;
@@ -30,8 +36,8 @@ export default function Page() {
   const refresh = useCallback(async () => {
     try {
       const [o, s] = await Promise.all([
-        fetch('/api/orders', { cache: 'no-store' }).then((r) => r.json()),
-        fetch('/api/stats', { cache: 'no-store' }).then((r) => r.json()),
+        fetch(`${API_URL}/orders`, { cache: 'no-store' }).then((r) => r.json()),
+        fetch(`${API_URL}/debug/stats`, { cache: 'no-store' }).then((r) => r.json()),
       ]);
       if (Array.isArray(o)) setOrders(o);
       if (s && s.outbox) setStats(s);
@@ -48,9 +54,16 @@ export default function Page() {
 
   const createOrder = async () => {
     setBusy(true);
-    say('POST /api/orders  -> API opens a transaction');
+    say('POST /orders  -> API opens a transaction');
     try {
-      const res = await fetch('/api/orders', { method: 'POST' });
+      const res = await fetch(`${API_URL}/orders`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          customer: `web-user-${Math.random().toString(36).slice(2, 8)}`,
+          amountCents: Math.floor(Math.random() * 9000) + 1000,
+        }),
+      });
       const data = await res.json();
       if (res.ok) {
         say(
