@@ -93,6 +93,12 @@ button.primary:disabled {
   cursor: progress;
 }
 
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
 .stats {
   display: flex;
   flex-wrap: wrap;

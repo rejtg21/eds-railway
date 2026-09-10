@@ -7,6 +7,12 @@ export const envSchema = z.object({
   /** Which slices of the system this process runs. */
   APP_ROLE: z.enum(['all', 'web', 'relay', 'consumer']).default('all'),
 
+  /**
+   * `poll`   - the relay dispatches PENDING outbox rows on a timer.
+   * `manual` - the relay only runs when POST /outbox/drain is called.
+   */
+  OUTBOX_RELAY_MODE: z.enum(['poll', 'manual']).default('manual'),
+
   DATABASE_URL: z.string().url(),
   DIRECT_URL: z.string().url().optional(),
   PGBOSS_DATABASE_URL: z.string().url().optional(),

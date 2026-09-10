@@ -33,8 +33,13 @@ export default function Page() {
   const say = (line: string) =>
     setLog((l) => [`${new Date().toLocaleTimeString()}  ${line}`, ...l].slice(0, 12));
 
+  const [refreshing, setRefreshing] = useState(false);
+
   const refresh = useCallback(async () => {
+    setRefreshing(true);
     try {
+      // No background poller on the API — advance the pipeline on demand.
+      await fetch(`${API_URL}/outbox/drain`, { method: 'POST' }).catch(() => {});
       const [o, s] = await Promise.all([
         fetch(`${API_URL}/orders`, { cache: 'no-store' }).then((r) => r.json()),
         fetch(`${API_URL}/debug/stats`, { cache: 'no-store' }).then((r) => r.json()),
@@ -42,14 +47,14 @@ export default function Page() {
       if (Array.isArray(o)) setOrders(o);
       if (s && s.outbox) setStats(s);
     } catch {
-      /* ignore transient errors while polling */
+      /* ignore transient errors */
+    } finally {
+      setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
     refresh();
-    const t = setInterval(refresh, 1500);
-    return () => clearInterval(t);
   }, [refresh]);
 
   const createOrder = async () => {
@@ -71,7 +76,7 @@ export default function Page() {
             data.eventId,
           ).slice(0, 8)} (status PENDING)`,
         );
-        say('relay will publish -> consumer confirms it shortly...');
+        say('row is PENDING — hit Refresh to drain the outbox');
       } else {
         say(`error: ${JSON.stringify(data)}`);
       }
@@ -109,9 +114,14 @@ export default function Page() {
         consumer marks the order <code>CONFIRMED</code>.
       </p>
 
-      <button className="primary" onClick={createOrder} disabled={busy}>
-        {busy ? 'Creating…' : 'Create order (publish event)'}
-      </button>
+      <div className="actions">
+        <button className="primary" onClick={createOrder} disabled={busy}>
+          {busy ? 'Creating…' : 'Create order (publish event)'}
+        </button>
+        <button className="secondary" onClick={refresh} disabled={refreshing}>
+          {refreshing ? 'Refreshing…' : 'Refresh (drain outbox)'}
+        </button>
+      </div>
 
       {stats && (
         <div className="stats">

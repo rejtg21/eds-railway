@@ -50,6 +50,13 @@ export class OutboxRelayService implements OnModuleInit, OnApplicationShutdown {
       this.logger.log(`Outbox relay disabled (APP_ROLE=${role})`);
       return;
     }
+    const mode = this.config.get('OUTBOX_RELAY_MODE', { infer: true });
+    if (mode !== 'poll') {
+      this.logger.log(
+        'Outbox relay in manual mode — POST /outbox/drain to dispatch PENDING rows',
+      );
+      return;
+    }
     const interval = this.config.get('OUTBOX_POLL_INTERVAL_MS', {
       infer: true,
     });
