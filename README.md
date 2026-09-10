@@ -166,6 +166,9 @@ Railway's own Postgres plugin is a direct connection with no such session cap, s
 none of this applies there — but the pools still exist, so keep an eye on
 `max_connections` if you scale replicas.
 
+Full checklist for starting a new project with this stack:
+[`docs/database-connection-constraints.md`](docs/database-connection-constraints.md).
+
 ## CI
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml): install → `prisma generate`
