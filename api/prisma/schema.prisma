@@ -1,0 +1,66 @@
+// Prisma schema for the event-driven sample.
+//
+// Three concepts live here:
+//   1. transaction  -> Order + OutboxEvent are written in one Prisma $transaction
+//   2. outbox       -> OutboxEvent rows are drained by the relay (FOR UPDATE SKIP LOCKED)
+//   3. idempotency  -> ProcessedEvent (consumer, eventId) makes consumers exactly-once
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Order {
+  id          String   @id @default(uuid())
+  customer    String
+  amountCents Int      @map("amount_cents")
+  status      String   @default("PENDING") // PENDING -> CONFIRMED (set by the consumer)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("orders")
+}
+
+/// Transactional outbox. One row is inserted in the SAME transaction as the
+/// business change. The relay polls PENDING rows and publishes them to the bus.
+model OutboxEvent {
+  id          String    @id @default(uuid())
+  eventId     String    @unique @default(uuid()) @map("event_id") // stable id used for consumer idempotency
+  eventName   String    @map("event_name")
+  aggregateId String    @map("aggregate_id")
+  payload     Json
+  status      String    @default("PENDING") // PENDING -> PUBLISHED | DEAD
+  attempts    Int       @default(0)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  publishedAt DateTime? @map("published_at")
+
+  @@index([status, createdAt])
+  @@map("outbox_events")
+}
+
+/// Idempotency ledger. A consumer inserts (consumer, eventId) in the same
+/// transaction as its side effects, so re-delivery is a no-op.
+model ProcessedEvent {
+  consumer    String
+  eventId     String   @map("event_id")
+  processedAt DateTime @default(now()) @map("processed_at")
+
+  @@id([consumer, eventId])
+  @@map("processed_events")
+}
+
+/// Result of the consumer's "respective task" - lets the UI see work happened.
+model OrderAudit {
+  id        String   @id @default(uuid())
+  orderId   String   @map("order_id")
+  message   String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([orderId])
+  @@map("order_audit")
+}

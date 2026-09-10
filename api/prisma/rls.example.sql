@@ -1,0 +1,25 @@
+-- OPTIONAL: multi-tenant Row Level Security.
+--
+-- This file is NOT part of `prisma migrate` (Prisma does not manage RLS well).
+-- Run it by hand against the direct connection once the app role exists, or fold
+-- it into a dedicated migration you maintain manually.
+--
+-- The app must connect as a NON-superuser role for RLS to take effect, and must
+-- run every request inside a transaction that does:
+--     SET LOCAL app.current_tenant = '<tenant-uuid>';
+-- (wire this through a Prisma client extension around $transaction).
+
+-- 1. Dedicated least-privilege role for the application
+--    CREATE ROLE app_user LOGIN PASSWORD 'change-me';
+--    GRANT CONNECT ON DATABASE appdb TO app_user;
+--    GRANT USAGE ON SCHEMA public TO app_user;
+--    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user;
+--    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_user;
+
+-- 2. Example: add a tenant_id column + policy to orders
+--    ALTER TABLE orders ADD COLUMN tenant_id UUID NOT NULL DEFAULT gen_random_uuid();
+--    ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+--    ALTER TABLE orders FORCE ROW LEVEL SECURITY;
+--    CREATE POLICY tenant_isolation ON orders
+--      USING (tenant_id = current_setting('app.current_tenant', true)::uuid)
+--      WITH CHECK (tenant_id = current_setting('app.current_tenant', true)::uuid);
